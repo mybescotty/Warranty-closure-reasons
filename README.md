@@ -10,11 +10,17 @@ Local reasons are matched to the export on claim number and replace the system r
 
 ## Buckets
 - **Cancelled**: Stores cancelled, Warranty Cancelled (includes Engineer Cancelled)
-- **Processed**: Successful Claim / Completed, Warranty Approved, Stores approved A/B
+- **Processed**: Successful Claim / Completed, Warranty Approved, Uplifted by Supplier
 - **Supplier Rejected**: shown on its own
-- **Open**: Awaiting Collection, Uplifted by Supplier, Unfinished
+- **Open / In Progress**: Awaiting Collection, Stores approved A/B
+- **Not Started**: Unfinished
 - **Lost value**: total CLAIMAMOUNT of cancelled claims
 
 ## Depot names
 Tabs show store codes until you add names to `STORE_NAMES` near the top of the script,
 for example `'2261': 'Hunslet',`.
+
+## Unfinished report (PDF)
+The **Unfinished report (PDF)** button downloads a summary page plus one page per depot
+listing every claim at *Unfinished*, oldest first. On **All Depots** it covers every depot;
+on a depot tab it covers just that depot. The fail date filter applies.

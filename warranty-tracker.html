@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Warranty Tracker</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
 :root {
   --bg-page:       #f5f5f7;
@@ -75,6 +77,8 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 .bar.pink { background: var(--accent); }
 .badge-navy { background: #2D2A6E; color: #fff; border-radius: 3px; padding: 1px 5px; font-size: 11px; white-space: nowrap; }
 .badge-red  { background: #e74c3c; color: #fff; border-radius: 3px; padding: 1px 5px; font-size: 11px; white-space: nowrap; }
+.badge-amber { background: #f39c12; color: #2D2A6E; border-radius: 3px; padding: 1px 5px; font-size: 11px; white-space: nowrap; }
+.tile.notstarted { border-left: 4px solid #f39c12; }
 .badge-grey { background: #e0e0ec; color: #2D2A6E; border-radius: 3px; padding: 1px 5px; font-size: 11px; white-space: nowrap; }
 .muted { color: var(--text-secondary); }
 tr.no-local td { background: var(--row-amber); }
@@ -97,6 +101,7 @@ tr.no-local td { background: var(--row-amber); }
     <label>Fail date from <input type="date" id="dateFrom"></label>
     <label>to <input type="date" id="dateTo"></label>
     <button class="toggle-btn" id="btnClearDates">All dates</button>
+    <button class="upload-btn" id="btnUnfinishedPdf">Unfinished report (PDF)</button>
   </div>
 </header>
 <div class="layout">
@@ -120,11 +125,12 @@ const STORE_NAMES = {
 // Status buckets, matched on CLAIMSTATUS (case-insensitive).
 const STATUS_BUCKETS = {
   cancelled: ['stores cancelled', 'warranty cancelled', 'engineer cancelled'],
-  processed: ['successful claim', 'completed', 'warranty approved', 'stores approved a', 'stores approved b', 'engineer approved'],
+  processed: ['successful claim', 'completed', 'warranty approved', 'engineer approved', 'uplifted by supplier'],
   rejected:  ['supplier rejected'],
-  open:      ['awaiting collection', 'uplifted by supplier', 'unfinished', 'response received'],
+  open:      ['awaiting collection', 'stores approved a', 'stores approved b', 'response received'],
+  notstarted: ['unfinished'],
 };
-const BUCKET_LABEL = { cancelled: 'Cancelled', processed: 'Processed', rejected: 'Supplier Rejected', open: 'Open / In Progress' };
+const BUCKET_LABEL = { cancelled: 'Cancelled', processed: 'Processed', rejected: 'Supplier Rejected', open: 'Open / In Progress', notstarted: 'Not Started' };
 
 /* ── 2. State ──────────────────────────────────────────────────────────── */
 let claims = [];            // system export rows (normalised)
@@ -232,7 +238,7 @@ function inDateRange(c) {
 }
 
 function summarise(rows) {
-  const s = { total: rows.length, cancelled: 0, processed: 0, rejected: 0, open: 0, lost: 0, withLocal: 0 };
+  const s = { total: rows.length, cancelled: 0, processed: 0, rejected: 0, open: 0, notstarted: 0, lost: 0, withLocal: 0 };
   for (const c of rows) {
     s[c.bucket]++;
     if (c.bucket === 'cancelled') {
@@ -262,7 +268,7 @@ function groupStatus(rows) {
     if (!m.has(key)) m.set(key, { status: c.status || '(blank)', bucket: c.bucket, count: 0, value: 0 });
     const g = m.get(key); g.count++; g.value += c.amount;
   }
-  const order = { cancelled: 0, rejected: 1, open: 2, processed: 3 };
+  const order = { cancelled: 0, rejected: 1, notstarted: 2, open: 3, processed: 4 };
   return [...m.values()].sort((a, b) => order[a.bucket] - order[b.bucket] || b.count - a.count);
 }
 
@@ -316,7 +322,8 @@ function renderView(rows, allFiltered) {
     ${tile('Cancelled', s.cancelled.toLocaleString(), pct(s.cancelled, s.total) + ' of claims')}
     ${tile('Processed', s.processed.toLocaleString(), pct(s.processed, s.total) + ' of claims')}
     ${tile('Supplier rejected', s.rejected.toLocaleString(), pct(s.rejected, s.total) + ' of claims')}
-    ${tile('Open / in progress', s.open.toLocaleString(), 'Awaiting collection, uplifted, unfinished')}
+    ${tile('Open / in progress', s.open.toLocaleString(), 'Awaiting collection, stores approved A/B')}
+    ${tile('Not started', s.notstarted.toLocaleString(), 'Unfinished claims', 'notstarted')}
     ${tile('Lost value', gbp(s.lost), 'Claim £ of cancelled claims', 'lost')}
     ${tile('Local reason given', pct(s.withLocal, s.cancelled), `${s.withLocal} of ${s.cancelled} cancelled`)}
   </div>`;
@@ -335,7 +342,7 @@ function renderView(rows, allFiltered) {
     <div class="panel"><h3>Claim status</h3>
       <table class="wo-table"><thead><tr><th>System status</th><th>Counted as</th><th class="num">Claims</th><th class="num">Claim £</th></tr></thead><tbody>
       ${statuses.map(g => `<tr><td>${esc(g.status)}</td>
-        <td><span class="${g.bucket === 'cancelled' ? 'badge-red' : g.bucket === 'processed' ? 'badge-navy' : 'badge-grey'}">${BUCKET_LABEL[g.bucket]}</span></td>
+        <td><span class="${g.bucket === 'cancelled' ? 'badge-red' : g.bucket === 'processed' ? 'badge-navy' : g.bucket === 'notstarted' ? 'badge-amber' : 'badge-grey'}">${BUCKET_LABEL[g.bucket]}</span></td>
         <td class="num">${g.count}</td><td class="num">${gbp(g.value)}</td></tr>`).join('')}
       </tbody></table>
     </div>
@@ -367,11 +374,11 @@ function storeLeague(filtered) {
   const maxLost = Math.max(1, ...rows.map(r => r.lost));
   return `<div class="panel"><h3>Depot comparison — sorted by lost value (click a row to open the depot)</h3>
     <table class="wo-table"><thead><tr><th>Depot</th><th class="num">Claims</th><th class="num">Cancelled</th><th class="num">Cancel rate</th>
-      <th class="num">Processed</th><th class="num">Rejected</th><th class="num">Open</th><th class="num">Local reason</th><th class="num">Lost £</th><th></th></tr></thead><tbody>
+      <th class="num">Processed</th><th class="num">Rejected</th><th class="num">Open</th><th class="num">Not started</th><th class="num">Local reason</th><th class="num">Lost £</th><th></th></tr></thead><tbody>
     ${rows.map(r => `<tr class="clickable" data-goto="${esc(r.store)}">
       <td>${esc(storeLabel(r.store))}</td><td class="num">${r.total}</td><td class="num">${r.cancelled}</td>
       <td class="num">${pct(r.cancelled, r.total)}</td><td class="num">${r.processed}</td><td class="num">${r.rejected}</td>
-      <td class="num">${r.open}</td><td class="num">${pct(r.withLocal, r.cancelled)}</td><td class="num">${gbp(r.lost)}</td>
+      <td class="num">${r.open}</td><td class="num">${r.notstarted}</td><td class="num">${pct(r.withLocal, r.cancelled)}</td><td class="num">${gbp(r.lost)}</td>
       <td class="bar-cell"><div class="bar pink" style="width:${r.lost / maxLost * 100}%" title="${gbp(r.lost)}"></div></td></tr>`).join('')}
     </tbody></table></div>`;
 }
@@ -415,6 +422,81 @@ function exportCsv(cancelled) {
   URL.revokeObjectURL(a.href);
 }
 
+/* ── 6b. Unfinished (Not Started) PDF report ───────────────────────────── */
+function unfinishedPdf() {
+  if (!claims.length) { alert('Upload the system export first.'); return; }
+  const rows = claims.filter(inDateRange)
+    .filter(c => c.bucket === 'notstarted' && (currentView === 'ALL' || c.store === currentView));
+  if (!rows.length) { alert('No unfinished claims for this selection.'); return; }
+  const byStore = new Map();
+  for (const c of rows.sort((a, b) => (a.failDate || 0) - (b.failDate || 0))) {
+    if (!byStore.has(c.store)) byStore.set(c.store, []);
+    byStore.get(c.store).push(c);
+  }
+  const stores = [...byStore.keys()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const today = new Date();
+  const ageDays = d => d ? Math.floor((today - d) / 864e5) : '';
+  const from = $('dateFrom').value, to = $('dateTo').value;
+  const rangeTxt = from || to ? `Fail date ${from || '…'} to ${to || '…'}` : 'All fail dates';
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const W = doc.internal.pageSize.getWidth();
+  const NAVY = [45, 42, 110], PINK = [229, 0, 125];
+  const banner = title => {
+    doc.setFillColor(...NAVY); doc.rect(0, 0, W, 18, 'F');
+    doc.setTextColor(255); doc.setFontSize(14); doc.text(title, 10, 10);
+    doc.setFontSize(8); doc.text('Designed by First Bus Franchise · Engineering', 10, 15);
+    doc.text(`Generated ${today.toLocaleDateString('en-GB')} · ${rangeTxt}`, W - 10, 15, { align: 'right' });
+    doc.setTextColor(...NAVY);
+  };
+
+  // Summary page
+  banner('Unfinished Warranty Claims — Summary by Depot');
+  const total = rows.reduce((a, c) => a + c.amount, 0);
+  doc.setFontSize(11);
+  doc.text(`${rows.length} unfinished claims · ${gbp(total)} claim value · ${stores.length} depot(s)`, 10, 27);
+  doc.autoTable({
+    startY: 31,
+    head: [['Depot', 'Unfinished claims', 'Claim £', 'Oldest fail date', 'Oldest (days)']],
+    body: stores.map(s => {
+      const l = byStore.get(s);
+      return [storeLabel(s), l.length, gbp(l.reduce((a, c) => a + c.amount, 0)), fmtDate(l[0].failDate), ageDays(l[0].failDate)];
+    }),
+    foot: [['Total', rows.length, gbp(total), '', '']], showFoot: 'lastPage', margin: { top: 24 },
+    headStyles: { fillColor: NAVY }, footStyles: { fillColor: [224, 224, 236], textColor: NAVY },
+    styles: { fontSize: 9 },
+    didParseCell: d => { if ([1, 2, 4].includes(d.column.index)) d.cell.styles.halign = 'right'; },
+    columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 4: { halign: 'right' } },
+  });
+
+  // One section per depot, each starting on a new page
+  for (const s of stores) {
+    const l = byStore.get(s);
+    doc.addPage();
+    banner(`Unfinished Warranty Claims — ${storeLabel(s)}`);
+    doc.setFontSize(11);
+    doc.text(`${l.length} claim(s) · ${gbp(l.reduce((a, c) => a + c.amount, 0))}`, 10, 27);
+    doc.autoTable({
+      startY: 31,
+      head: [['Fail date', 'Days', 'Claim no.', 'Fleet', 'WO', 'Part', 'Part description', 'Defect', 'Supplier', 'Claim £']],
+      body: l.map(c => [fmtDate(c.failDate), ageDays(c.failDate), c.claim, c.fleet, c.wo, c.part, c.partDesc, c.defect, c.supplier, gbp(c.amount)]),
+      headStyles: { fillColor: NAVY }, alternateRowStyles: { fillColor: [245, 245, 247] },
+      styles: { fontSize: 8, cellPadding: 1.5 }, margin: { top: 24 },
+      didParseCell: d => { if ([1, 9].includes(d.column.index)) d.cell.styles.halign = 'right'; },
+      columnStyles: { 1: { halign: 'right' }, 9: { halign: 'right' }, 6: { cellWidth: 55 }, 7: { cellWidth: 45 } },
+    });
+  }
+
+  // Page numbers
+  const n = doc.getNumberOfPages();
+  for (let i = 1; i <= n; i++) {
+    doc.setPage(i); doc.setFontSize(8); doc.setTextColor(...PINK);
+    doc.text(`Page ${i} of ${n}`, W - 10, doc.internal.pageSize.getHeight() - 6, { align: 'right' });
+  }
+  doc.save(`unfinished-warranty-${currentView === 'ALL' ? 'all-depots' : currentView}-${isoLocal(today)}.pdf`);
+}
+
 /* ── 7. Wiring ─────────────────────────────────────────────────────────── */
 $('btnSystem').addEventListener('click', () => $('fileSystem').click());
 $('btnLocal').addEventListener('click', () => $('fileLocal').click());
@@ -448,6 +530,7 @@ $('nav').addEventListener('click', e => {
 });
 $('dateFrom').addEventListener('change', render);
 $('dateTo').addEventListener('change', render);
+$('btnUnfinishedPdf').addEventListener('click', unfinishedPdf);
 $('btnClearDates').addEventListener('click', () => { $('dateFrom').value = ''; $('dateTo').value = ''; render(); });
 </script>
 </body>
