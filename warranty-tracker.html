@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Warranty Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root {
+  --bg-page:       #f5f5f7;
+  --bg-header:     #2D2A6E;
+  --bg-panel:      #ffffff;
+  --accent:        #E5007D;
+  --accent-hover:  #C0006A;
+  --row-red:       rgba(231,76,60,0.12);
+  --row-amber:     rgba(243,156,18,0.15);
+  --row-green:     rgba(39,174,96,0.15);
+  --text-primary:  #2D2A6E;
+  --text-secondary:#6b6b8a;
+  --text-on-dark:  #ffffff;
+  --border:        #e0e0ec;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: var(--bg-page); color: var(--text-primary); }
+header {
+  background: var(--bg-header); color: var(--text-on-dark);
+  padding: 8px 20px; min-height: 56px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+}
+header h1 { font-size: 18px; margin: 0; }
+.tagline { font-size: 10px; opacity: 0.55; letter-spacing: 0.05em; margin-top: 2px; }
+.hdr-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-left: auto; font-size: 12px; }
+.hdr-controls .toggle-btn { border-color: #fff; color: #fff; }
+.hdr-controls input[type=date] { border: none; border-radius: 4px; padding: 4px 6px; font-size: 12px; }
+.upload-btn { background: var(--accent); color: #fff; border: none; border-radius: 5px; padding: 7px 14px; font-size: 13px; cursor: pointer; }
+.upload-btn:hover { background: var(--accent-hover); }
+.upload-btn.loaded::after { content: " ✓"; }
+.toggle-btn { background: none; border: 1px solid var(--accent); color: var(--accent); border-radius: 5px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
+.toggle-btn:hover  { background: rgba(229,0,125,0.08); }
+.toggle-btn.active { background: var(--accent); color: #fff; }
+.action-btn { background: #27ae60; color: #fff; border: none; border-radius: 5px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
+.action-btn:hover { background: #219a52; }
+.layout { display: flex; min-height: calc(100vh - 56px); }
+nav { width: 230px; flex-shrink: 0; background: var(--bg-panel); border-right: 1px solid var(--border); padding: 10px 0; overflow-y: auto; max-height: calc(100vh - 56px); position: sticky; top: 0; }
+nav .nav-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary); padding: 10px 14px 4px; }
+.nav-item { display: flex; justify-content: space-between; align-items: center; padding: 7px 14px; cursor: pointer; font-size: 13px; border-radius: 0 20px 20px 0; margin-right: 8px; transition: background 0.15s; }
+.nav-item:hover  { background: rgba(229,0,125,0.08); }
+.nav-item.active { background: var(--accent); color: #fff; }
+.nav-item .cnt { font-size: 11px; opacity: 0.75; }
+main { flex: 1; padding: 20px; min-width: 0; }
+.empty { background: var(--bg-panel); border: 1px dashed var(--border); border-radius: 8px; padding: 40px; text-align: center; color: var(--text-secondary); line-height: 1.7; }
+h2 { margin: 0 0 4px; font-size: 20px; }
+.sub { color: var(--text-secondary); font-size: 12px; margin-bottom: 16px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.tile { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+.tile .lbl { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
+.tile .val { font-size: clamp(18px, 2vw, 26px); white-space: nowrap; font-weight: 600; margin-top: 4px; }
+.tile .note { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+.tile.lost { border-left: 4px solid #e74c3c; }
+.tile.lost .val { color: #c0392b; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+@media (max-width: 1000px) { .grid2 { grid-template-columns: 1fr; } }
+@media (max-width: 700px) { .layout { flex-direction: column; } nav { width: 100%; max-height: 220px; position: static; } }
+.panel { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 16px; overflow-x: auto; }
+.panel h3 { margin: 0 0 10px; font-size: 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.panel h3 .grow { flex: 1; }
+.wo-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.wo-table th { background: var(--bg-header); color: var(--text-on-dark); padding: 8px 10px; text-align: left; font-size: 12px; white-space: nowrap; }
+.wo-table th.sortable { cursor: pointer; }
+.wo-table td { padding: 7px 10px; border-bottom: 1px solid #eaecef; vertical-align: top; }
+.wo-table tbody tr:hover td { filter: brightness(0.96); }
+.wo-table tbody tr.clickable { cursor: pointer; }
+.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bar-cell { width: 40%; min-width: 120px; }
+.bar { height: 12px; background: var(--bg-header); border-radius: 0 4px 4px 0; min-width: 2px; }
+.bar.pink { background: var(--accent); }
+.badge-navy { background: #2D2A6E; color: #fff; border-radius: 3px; padding: 1px 5px; font-size: 11px; white-space: nowrap; }
+.badge-red  { background: #e74c3c; color: #fff; border-radius: 3px; padding: 1px 5px; font-size: 11px; white-space: nowrap; }
+.badge-grey { background: #e0e0ec; color: #2D2A6E; border-radius: 3px; padding: 1px 5px; font-size: 11px; white-space: nowrap; }
+.muted { color: var(--text-secondary); }
+tr.no-local td { background: var(--row-amber); }
+.legend-line { font-size: 11px; color: var(--text-secondary); margin-top: 8px; }
+.warn { background: var(--row-amber); border-left: 4px solid #e67e22; padding: 8px 12px; border-radius: 4px; font-size: 12px; margin-bottom: 16px; }
+.search { border: 1px solid var(--border); border-radius: 5px; padding: 4px 8px; font-size: 12px; min-width: 180px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>🔧 Warranty Tracker</h1>
+    <div class="tagline">Designed by First Bus Franchise · Engineering</div>
+  </div>
+  <div class="hdr-controls">
+    <button class="upload-btn" id="btnSystem">System export (.xlsx)</button>
+    <button class="upload-btn" id="btnLocal">Local cancel log (.xlsx)</button>
+    <input type="file" id="fileSystem" accept=".xlsx,.xls,.csv" hidden>
+    <input type="file" id="fileLocal" accept=".xlsx,.xls,.csv" hidden>
+    <label>Fail date from <input type="date" id="dateFrom"></label>
+    <label>to <input type="date" id="dateTo"></label>
+    <button class="toggle-btn" id="btnClearDates">All dates</button>
+  </div>
+</header>
+<div class="layout">
+  <nav id="nav"></nav>
+  <main id="main">
+    <div class="empty">
+      <strong>Upload the system warranty export to start.</strong><br>
+      Then upload the local team's <em>Warranty Cancel Log</em> workbook (one tab per depot:
+      Date · Warranty Claim Number · Reason for Cancelling · Cancelled By Head of Stores).<br>
+      Local reasons are matched on claim number and take priority over the system reject reason.
+    </div>
+  </main>
+</div>
+<script>
+/* ── 1. Config ─────────────────────────────────────────────────────────── */
+// Store code → depot name. Fill these in and the tabs will show the depot name.
+// e.g. '2261': 'Hunslet',
+const STORE_NAMES = {
+};
+
+// Status buckets, matched on CLAIMSTATUS (case-insensitive).
+const STATUS_BUCKETS = {
+  cancelled: ['stores cancelled', 'warranty cancelled', 'engineer cancelled'],
+  processed: ['successful claim', 'completed', 'warranty approved', 'stores approved a', 'stores approved b', 'engineer approved'],
+  rejected:  ['supplier rejected'],
+  open:      ['awaiting collection', 'uplifted by supplier', 'unfinished', 'response received'],
+};
+const BUCKET_LABEL = { cancelled: 'Cancelled', processed: 'Processed', rejected: 'Supplier Rejected', open: 'Open / In Progress' };
+
+/* ── 2. State ──────────────────────────────────────────────────────────── */
+let claims = [];            // system export rows (normalised)
+let localLog = new Map();   // claim number → {date, reason, hos, sheet}
+let currentView = 'ALL';
+let claimSearch = '';
+
+/* ── 3. Helpers ────────────────────────────────────────────────────────── */
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const gbp = n => '£' + (n || 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '–';
+const normClaim = v => String(v ?? '').trim().replace(/\.0+$/, '');
+const toNum = v => { const n = parseFloat(String(v ?? '').replace(/[£,\s]/g, '')); return isNaN(n) ? 0 : n; };
+const storeLabel = code => STORE_NAMES[code] ? `${STORE_NAMES[code]} (${code})` : `Store ${code}`;
+const fmtDate = d => d instanceof Date && !isNaN(d) ? d.toLocaleDateString('en-GB') : '';
+
+function toDate(v) {
+  if (v instanceof Date) return v;
+  if (typeof v === 'number') return new Date(Math.round((v - 25569) * 864e5));
+  const s = String(v ?? '').trim();
+  const m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/);
+  if (m) return new Date(+(m[3].length === 2 ? '20' + m[3] : m[3]), m[2] - 1, +m[1]);
+  const d = new Date(s);
+  return isNaN(d) ? null : d;
+}
+
+const isoLocal = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+function bucketFor(status) {
+  const s = String(status || '').trim().toLowerCase();
+  for (const [b, list] of Object.entries(STATUS_BUCKETS)) if (list.includes(s)) return b;
+  return 'open';
+}
+
+function readWorkbook(file) {
+  return file.arrayBuffer().then(buf => XLSX.read(buf, { type: 'array', cellDates: true }));
+}
+
+/* ── 4. Parsing ────────────────────────────────────────────────────────── */
+function parseSystem(wb) {
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+  const get = (r, k) => r[k] ?? r[k.toLowerCase()] ?? '';
+  const out = rows.map(r => {
+    const status = String(get(r, 'CLAIMSTATUS')).trim();
+    return {
+      store:   String(get(r, 'STORE')).trim(),
+      claim:   normClaim(get(r, 'CLAIMCODE')),
+      fleet:   String(get(r, 'FLEETNO')).trim(),
+      wo:      String(get(r, 'WO')).trim(),
+      failDate: toDate(get(r, 'FAILDATE')),
+      status,
+      closing: String(get(r, 'CLOSINGSTATUS')).trim(),
+      bucket:  bucketFor(status),
+      part:    String(get(r, 'PART')).trim(),
+      partDesc: String(get(r, 'PARTDESC')).trim(),
+      defect:  String(get(r, 'DEFECTDESC')).trim(),
+      sysReason: String(get(r, 'REJECTREASON')).trim(),
+      amount:  toNum(get(r, 'CLAIMAMOUNT')),
+      settled: toNum(get(r, 'SETTLECASH')),
+      supplier: String(get(r, 'SUPPLIERNAME')).trim(),
+    };
+  }).filter(r => r.claim && r.store);
+  if (!out.length) throw new Error('No claims found — expected columns STORE, CLAIMCODE, CLAIMSTATUS, CLAIMAMOUNT …');
+  return out;
+}
+
+function parseLocal(wb) {
+  const map = new Map();
+  for (const name of wb.SheetNames) {
+    const grid = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '' });
+    const hIdx = grid.findIndex(row => row.some(c => /claim/i.test(String(c))));
+    if (hIdx < 0) continue;
+    const hdr = grid[hIdx].map(c => String(c).toLowerCase());
+    const col = re => hdr.findIndex(h => re.test(h));
+    const cClaim = col(/claim/), cReason = col(/reason/), cDate = col(/date/), cHos = col(/head of stores|cancelled by/);
+    for (const row of grid.slice(hIdx + 1)) {
+      const claim = normClaim(row[cClaim]);
+      if (!claim) continue;
+      map.set(claim, {
+        date:   cDate >= 0 ? toDate(row[cDate]) : null,
+        reason: cReason >= 0 ? String(row[cReason]).trim() : '',
+        hos:    cHos >= 0 ? String(row[cHos]).trim() : '',
+        sheet:  name,
+      });
+    }
+  }
+  return map;
+}
+
+/* ── 5. Processing ─────────────────────────────────────────────────────── */
+function reasonFor(c) {
+  const loc = localLog.get(c.claim);
+  if (loc && loc.reason) return { text: loc.reason, src: 'local' };
+  return { text: c.sysReason || 'No reason given', src: 'system' };
+}
+
+function inDateRange(c) {
+  const from = $('dateFrom').value, to = $('dateTo').value;
+  if (!from && !to) return true;
+  if (!c.failDate) return false;
+  const d = isoLocal(c.failDate);
+  return (!from || d >= from) && (!to || d <= to);
+}
+
+function summarise(rows) {
+  const s = { total: rows.length, cancelled: 0, processed: 0, rejected: 0, open: 0, lost: 0, withLocal: 0 };
+  for (const c of rows) {
+    s[c.bucket]++;
+    if (c.bucket === 'cancelled') {
+      s.lost += c.amount;
+      if (localLog.get(c.claim)?.reason) s.withLocal++;
+    }
+  }
+  return s;
+}
+
+function groupReasons(cancelled) {
+  const m = new Map();
+  for (const c of cancelled) {
+    const r = reasonFor(c);
+    const key = r.text.toLowerCase();
+    if (!m.has(key)) m.set(key, { reason: r.text, count: 0, value: 0, local: 0 });
+    const g = m.get(key);
+    g.count++; g.value += c.amount; if (r.src === 'local') g.local++;
+  }
+  return [...m.values()].sort((a, b) => b.count - a.count || b.value - a.value);
+}
+
+function groupStatus(rows) {
+  const m = new Map();
+  for (const c of rows) {
+    const key = c.status.toLowerCase() || '(blank)';
+    if (!m.has(key)) m.set(key, { status: c.status || '(blank)', bucket: c.bucket, count: 0, value: 0 });
+    const g = m.get(key); g.count++; g.value += c.amount;
+  }
+  const order = { cancelled: 0, rejected: 1, open: 2, processed: 3 };
+  return [...m.values()].sort((a, b) => order[a.bucket] - order[b.bucket] || b.count - a.count);
+}
+
+/* ── 6. Rendering ──────────────────────────────────────────────────────── */
+function render() {
+  if (!claims.length) return;
+  const filtered = claims.filter(inDateRange);
+  const stores = [...new Set(claims.map(c => c.store))].sort((a, b) =>
+    (STORE_NAMES[a] || 'zz' + a).localeCompare(STORE_NAMES[b] || 'zz' + b));
+  renderNav(filtered, stores);
+  const rows = currentView === 'ALL' ? filtered : filtered.filter(c => c.store === currentView);
+  renderView(rows, filtered);
+}
+
+function renderNav(filtered, stores) {
+  const cancelledBy = {};
+  for (const c of filtered) if (c.bucket === 'cancelled') cancelledBy[c.store] = (cancelledBy[c.store] || 0) + 1;
+  const total = Object.values(cancelledBy).reduce((a, b) => a + b, 0);
+  const item = (id, label, n) => `<div class="nav-item${currentView === id ? ' active' : ''}" data-view="${esc(id)}" title="${n} cancelled">
+      <span>${esc(label)}</span><span class="cnt">${n}</span></div>`;
+  $('nav').innerHTML = `<div class="nav-head">Combined</div>${item('ALL', 'All Depots', total)}
+    <div class="nav-head">Depots (cancelled count)</div>
+    ${stores.map(s => item(s, storeLabel(s), cancelledBy[s] || 0)).join('')}`;
+}
+
+function tile(lbl, val, note, cls = '') {
+  return `<div class="tile ${cls}"><div class="lbl">${lbl}</div><div class="val">${val}</div><div class="note">${note || ''}</div></div>`;
+}
+
+function renderView(rows, allFiltered) {
+  const s = summarise(rows);
+  const cancelled = rows.filter(c => c.bucket === 'cancelled');
+  const reasons = groupReasons(cancelled);
+  const maxR = Math.max(1, ...reasons.map(r => r.count));
+  const statuses = groupStatus(rows);
+  const title = currentView === 'ALL' ? 'All Depots — Combined' : storeLabel(currentView);
+  const from = $('dateFrom').value, to = $('dateTo').value;
+  const range = from || to ? `Fail date ${from || '…'} to ${to || '…'}` : 'All fail dates';
+
+  let html = `<h2>${esc(title)}</h2>
+    <div class="sub">${range} · ${s.total.toLocaleString()} claims · Local cancel log: ${localLog.size ? localLog.size + ' entries loaded' : 'not loaded'}</div>`;
+
+  if (currentView === 'ALL' && localLog.size) {
+    const known = new Set(claims.map(c => c.claim));
+    const missing = [...localLog.keys()].filter(k => !known.has(k));
+    if (missing.length) html += `<div class="warn">⚠ ${missing.length} claim number(s) in the local log were not found in the system export: ${esc(missing.slice(0, 20).join(', '))}${missing.length > 20 ? ' …' : ''}</div>`;
+  }
+
+  html += `<div class="tiles">
+    ${tile('Total claims', s.total.toLocaleString())}
+    ${tile('Cancelled', s.cancelled.toLocaleString(), pct(s.cancelled, s.total) + ' of claims')}
+    ${tile('Processed', s.processed.toLocaleString(), pct(s.processed, s.total) + ' of claims')}
+    ${tile('Supplier rejected', s.rejected.toLocaleString(), pct(s.rejected, s.total) + ' of claims')}
+    ${tile('Open / in progress', s.open.toLocaleString(), 'Awaiting collection, uplifted, unfinished')}
+    ${tile('Lost value', gbp(s.lost), 'Claim £ of cancelled claims', 'lost')}
+    ${tile('Local reason given', pct(s.withLocal, s.cancelled), `${s.withLocal} of ${s.cancelled} cancelled`)}
+  </div>`;
+
+  html += `<div class="grid2">
+    <div class="panel"><h3>Reasons for cancelling</h3>
+      <table class="wo-table"><thead><tr><th>Reason</th><th class="num">Claims</th><th></th><th class="num">Lost £</th></tr></thead><tbody>
+      ${reasons.map(r => `<tr title="${esc(r.reason)}: ${r.count} claims, ${gbp(r.value)} (${r.local} from local log)">
+        <td>${esc(r.reason)} ${r.local ? `<span class="badge-navy">local ${r.local}</span>` : ''}</td>
+        <td class="num">${r.count}</td>
+        <td class="bar-cell"><div class="bar" style="width:${r.count / maxR * 100}%"></div></td>
+        <td class="num">${gbp(r.value)}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">No cancelled claims</td></tr>'}
+      </tbody></table>
+      <div class="legend-line">Local log reason used where the claim number matches; otherwise the system reject reason.</div>
+    </div>
+    <div class="panel"><h3>Claim status</h3>
+      <table class="wo-table"><thead><tr><th>System status</th><th>Counted as</th><th class="num">Claims</th><th class="num">Claim £</th></tr></thead><tbody>
+      ${statuses.map(g => `<tr><td>${esc(g.status)}</td>
+        <td><span class="${g.bucket === 'cancelled' ? 'badge-red' : g.bucket === 'processed' ? 'badge-navy' : 'badge-grey'}">${BUCKET_LABEL[g.bucket]}</span></td>
+        <td class="num">${g.count}</td><td class="num">${gbp(g.value)}</td></tr>`).join('')}
+      </tbody></table>
+    </div>
+  </div>`;
+
+  if (currentView === 'ALL') html += storeLeague(allFiltered);
+
+  html += `<div class="panel"><h3><span class="grow">Cancelled claims (${cancelled.length})</span>
+      <input class="search" id="claimSearch" placeholder="Search claim, fleet, part, reason…" value="${esc(claimSearch)}">
+      <button class="action-btn" id="btnCsv">Export CSV</button></h3>
+    <div id="claimsTable"></div>
+    <div class="legend-line">Amber rows = cancelled with no reason on the local cancel log.</div></div>`;
+
+  $('main').innerHTML = html;
+  renderClaims(cancelled);
+  $('claimSearch').addEventListener('input', e => { claimSearch = e.target.value; renderClaims(cancelled); });
+  $('btnCsv').addEventListener('click', () => exportCsv(cancelled));
+  document.querySelectorAll('[data-goto]').forEach(tr => tr.addEventListener('click', () => { currentView = tr.dataset.goto; render(); window.scrollTo(0, 0); }));
+}
+
+function storeLeague(filtered) {
+  const by = new Map();
+  for (const c of filtered) {
+    if (!by.has(c.store)) by.set(c.store, []);
+    by.get(c.store).push(c);
+  }
+  const rows = [...by.entries()].map(([store, list]) => ({ store, ...summarise(list) }))
+    .sort((a, b) => b.lost - a.lost);
+  const maxLost = Math.max(1, ...rows.map(r => r.lost));
+  return `<div class="panel"><h3>Depot comparison — sorted by lost value (click a row to open the depot)</h3>
+    <table class="wo-table"><thead><tr><th>Depot</th><th class="num">Claims</th><th class="num">Cancelled</th><th class="num">Cancel rate</th>
+      <th class="num">Processed</th><th class="num">Rejected</th><th class="num">Open</th><th class="num">Local reason</th><th class="num">Lost £</th><th></th></tr></thead><tbody>
+    ${rows.map(r => `<tr class="clickable" data-goto="${esc(r.store)}">
+      <td>${esc(storeLabel(r.store))}</td><td class="num">${r.total}</td><td class="num">${r.cancelled}</td>
+      <td class="num">${pct(r.cancelled, r.total)}</td><td class="num">${r.processed}</td><td class="num">${r.rejected}</td>
+      <td class="num">${r.open}</td><td class="num">${pct(r.withLocal, r.cancelled)}</td><td class="num">${gbp(r.lost)}</td>
+      <td class="bar-cell"><div class="bar pink" style="width:${r.lost / maxLost * 100}%" title="${gbp(r.lost)}"></div></td></tr>`).join('')}
+    </tbody></table></div>`;
+}
+
+const CLAIM_LIMIT = 500;
+function renderClaims(cancelled) {
+  const q = claimSearch.trim().toLowerCase();
+  const list = cancelled
+    .filter(c => !q || [c.claim, c.fleet, c.wo, c.partDesc, c.sysReason, localLog.get(c.claim)?.reason, c.store, STORE_NAMES[c.store]]
+      .some(v => String(v || '').toLowerCase().includes(q)))
+    .sort((a, b) => (b.failDate || 0) - (a.failDate || 0));
+  const showStore = currentView === 'ALL';
+  $('claimsTable').innerHTML = `<table class="wo-table"><thead><tr>
+      <th>Fail date</th><th>Claim no.</th>${showStore ? '<th>Depot</th>' : ''}<th>Fleet</th><th>Part</th><th class="num">Claim £</th>
+      <th>System reason</th><th>Local reason</th><th>HoS cancelled</th></tr></thead><tbody>
+    ${list.slice(0, CLAIM_LIMIT).map(c => {
+      const loc = localLog.get(c.claim);
+      return `<tr class="${loc?.reason ? '' : 'no-local'}">
+        <td>${fmtDate(c.failDate)}</td><td>${esc(c.claim)}</td>${showStore ? `<td>${esc(storeLabel(c.store))}</td>` : ''}
+        <td>${esc(c.fleet)}</td><td>${esc(c.partDesc)}</td><td class="num">${gbp(c.amount)}</td>
+        <td>${esc(c.sysReason)}</td><td>${loc?.reason ? esc(loc.reason) : '<span class="muted">—</span>'}</td>
+        <td>${esc(loc?.hos || '')}</td></tr>`;
+    }).join('') || `<tr><td colspan="9" class="muted">No matching claims</td></tr>`}
+    </tbody></table>
+    ${list.length > CLAIM_LIMIT ? `<div class="legend-line">Showing newest ${CLAIM_LIMIT} of ${list.length} — use search or Export CSV for the full list.</div>` : ''}`;
+}
+
+function exportCsv(cancelled) {
+  const head = ['Store', 'Depot', 'Fail date', 'Claim no', 'Fleet', 'WO', 'Part', 'Part desc', 'Claim £', 'System status', 'System reason', 'Local reason', 'HoS cancelled', 'Local log tab'];
+  const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = cancelled.map(c => {
+    const loc = localLog.get(c.claim) || {};
+    return [c.store, STORE_NAMES[c.store] || '', fmtDate(c.failDate), c.claim, c.fleet, c.wo, c.part, c.partDesc,
+      c.amount.toFixed(2), c.status, c.sysReason, loc.reason, loc.hos, loc.sheet].map(cell).join(',');
+  });
+  const blob = new Blob([[head.map(cell).join(','), ...lines].join('\r\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `cancelled-claims-${currentView === 'ALL' ? 'all' : currentView}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/* ── 7. Wiring ─────────────────────────────────────────────────────────── */
+$('btnSystem').addEventListener('click', () => $('fileSystem').click());
+$('btnLocal').addEventListener('click', () => $('fileLocal').click());
+
+$('fileSystem').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    claims = parseSystem(await readWorkbook(f));
+    $('btnSystem').classList.add('loaded');
+    currentView = 'ALL';
+    render();
+  } catch (err) { alert('Could not read system export: ' + err.message); }
+  e.target.value = '';
+});
+
+$('fileLocal').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    localLog = parseLocal(await readWorkbook(f));
+    if (!localLog.size) throw new Error('No rows with a Warranty Claim Number column were found.');
+    $('btnLocal').classList.add('loaded');
+    render();
+  } catch (err) { alert('Could not read local cancel log: ' + err.message); }
+  e.target.value = '';
+});
+
+$('nav').addEventListener('click', e => {
+  const it = e.target.closest('.nav-item'); if (!it) return;
+  currentView = it.dataset.view; claimSearch = '';
+  render();
+});
+$('dateFrom').addEventListener('change', render);
+$('dateTo').addEventListener('change', render);
+$('btnClearDates').addEventListener('click', () => { $('dateFrom').value = ''; $('dateTo').value = ''; render(); });
+</script>
+</body>
+</html>
