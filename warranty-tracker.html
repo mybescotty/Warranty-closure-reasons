@@ -89,6 +89,12 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 tr.no-local td { background: var(--row-amber); }
 .legend-line { font-size: 11px; color: var(--text-secondary); margin-top: 8px; }
 .warn { background: var(--row-amber); border-left: 4px solid #e67e22; padding: 8px 12px; border-radius: 4px; font-size: 12px; margin-bottom: 16px; }
+.rank-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.rank { display: inline-block; min-width: 24px; text-align: center; border-radius: 12px; padding: 1px 6px; font-size: 12px; font-weight: 600; background: var(--border); color: var(--text-primary); }
+.rank.top { background: var(--accent); color: #fff; }
+.table-wrap { overflow-x: auto; }
+.rank-table td { white-space: nowrap; }
+.notice { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--bg-header); color: var(--text-on-dark); padding: 10px 14px; border-radius: 6px; font-size: 13px; max-width: min(420px, calc(100vw - 32px)); z-index: 20; }
 .search { border: 1px solid var(--border); border-radius: 5px; padding: 4px 8px; font-size: 12px; min-width: 180px; }
 </style>
 </head>
@@ -151,10 +157,12 @@ const BUCKET_LABEL = { cancelled: 'Cancelled', processed: 'Processed', rejected:
 /* ── 2. State ──────────────────────────────────────────────────────────── */
 let claims = [];            // system export rows (normalised)
 let localLog = new Map();   // claim number → {date, reason, hos, sheet}
-let currentView = 'ALL';
+let currentView = 'RANK';
 let claimSearch = '';
 let hiddenStores = new Set();   // depots unticked in the sidebar (remembered in this browser)
 try { hiddenStores = new Set(JSON.parse(localStorage.getItem('wt-hidden-stores') || '[]')); } catch (e) {}
+let rankBy = 'lost';
+try { rankBy = localStorage.getItem('wt-rank-by') || 'lost'; } catch (e) {}
 const saveHidden = () => { try { localStorage.setItem('wt-hidden-stores', JSON.stringify([...hiddenStores])); } catch (e) {} };
 
 /* ── 3. Helpers ────────────────────────────────────────────────────────── */
@@ -183,6 +191,29 @@ function bucketFor(status) {
   const s = String(status || '').trim().toLowerCase();
   for (const [b, list] of Object.entries(STATUS_BUCKETS)) if (list.includes(s)) return b;
   return 'open';
+}
+
+// Shows a short message in the page (notify() is not available in every viewer).
+function notify(msg) {
+  let el = $('notice');
+  if (!el) { el = document.createElement('div'); el.id = 'notice'; el.className = 'notice'; el.setAttribute('role', 'status'); document.body.appendChild(el); }
+  el.textContent = msg; el.hidden = false;
+  clearTimeout(notify.t); notify.t = setTimeout(() => { el.hidden = true; }, 5000);
+}
+
+// Saves a file: through the claude.ai viewer when shared as an artifact, otherwise a normal browser download.
+async function saveFile(filename, blob) {
+  const dl = window.claude?.use ? await window.claude.use('downloads').catch(() => null) : null;
+  if (dl) {
+    try { await dl.save({ filename, data: blob }); }
+    catch (err) { if (err?.code !== 'declined') notify('Could not save ' + filename + ': ' + (err?.message || err?.code || 'unavailable')); }
+    return;
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
 function readWorkbook(file) {
@@ -300,6 +331,7 @@ function render() {
     (STORE_NAMES[a] || 'zz' + a).localeCompare(STORE_NAMES[b] || 'zz' + b));
   if (hiddenStores.has(currentView)) currentView = 'ALL';
   renderNav(dated, stores);
+  if (currentView === 'RANK') { renderRanking(filtered); return; }
   const rows = currentView === 'ALL' ? filtered : filtered.filter(c => c.store === currentView);
   renderView(rows, filtered);
 }
@@ -315,7 +347,9 @@ function renderNav(filtered, stores) {
       <span class="nm">${esc(label)}</span><span class="cnt">${n}</span></div>`;
   };
   const shown = stores.length - stores.filter(s => hiddenStores.has(s)).length;
-  $('nav').innerHTML = `<div class="nav-head">Combined</div>${item('ALL', 'All Depots', total, false)}
+  const shownCount = stores.filter(s => !hiddenStores.has(s)).length;
+  $('nav').innerHTML = `<div class="nav-head">Overview</div>${item('RANK', 'Dashboard — ranking', shownCount, false)}
+    ${item('ALL', 'All Depots combined', total, false)}
     <div class="nav-head">Depots (cancelled count) · ${shown} of ${stores.length} shown</div>
     <div class="nav-btns"><button class="toggle-btn" data-all="show">Show all</button><button class="toggle-btn" data-all="hide">Hide all</button></div>
     ${stores.map(s => item(s, storeLabel(s), cancelledBy[s] || 0, true)).join('')}`;
@@ -375,7 +409,7 @@ function renderView(rows, allFiltered) {
     </div>
   </div>`;
 
-  if (currentView === 'ALL') html += storeLeague(allFiltered);
+  if (currentView === 'ALL') html += `<div class="legend-line" style="margin:-6px 0 16px">Depot ranking is on the <a href="#" data-goto="RANK">Dashboard</a>.</div>`;
 
   html += `<div class="panel"><h3><span class="grow">Cancelled claims (${cancelled.length})</span>
       <input class="search" id="claimSearch" placeholder="Search claim, fleet, part, reason…" value="${esc(claimSearch)}">
@@ -387,27 +421,76 @@ function renderView(rows, allFiltered) {
   renderClaims(cancelled);
   $('claimSearch').addEventListener('input', e => { claimSearch = e.target.value; renderClaims(cancelled); });
   $('btnCsv').addEventListener('click', () => exportCsv(cancelled));
-  document.querySelectorAll('[data-goto]').forEach(tr => tr.addEventListener('click', () => { currentView = tr.dataset.goto; render(); window.scrollTo(0, 0); }));
+  bindGoto();
 }
 
-function storeLeague(filtered) {
+const RANK_METRICS = {
+  lost:       { label: 'Lost £',             val: r => r.lost,                               fmt: gbp },
+  cancelRate: { label: 'Cancel rate',        val: r => r.total ? r.cancelled / r.total : 0,  fmt: v => Math.round(v * 100) + '%' },
+  cancelled:  { label: 'Cancelled',          val: r => r.cancelled,                          fmt: v => v.toLocaleString() },
+  notstarted: { label: 'Not started',        val: r => r.notstarted,                         fmt: v => v.toLocaleString() },
+  rejected:   { label: 'Supplier rejected',  val: r => r.rejected,                           fmt: v => v.toLocaleString() },
+  missingFbf: { label: 'Missing FBF reason', val: r => r.cancelled - r.withLocal,            fmt: v => v.toLocaleString() },
+};
+
+function depotRows(filtered) {
   const by = new Map();
   for (const c of filtered) {
     if (!by.has(c.store)) by.set(c.store, []);
     by.get(c.store).push(c);
   }
-  const rows = [...by.entries()].map(([store, list]) => ({ store, ...summarise(list) }))
-    .sort((a, b) => b.lost - a.lost);
-  const maxLost = Math.max(1, ...rows.map(r => r.lost));
-  return `<div class="panel"><h3>Depot comparison — sorted by lost value (click a row to open the depot)</h3>
-    <table class="wo-table"><thead><tr><th>Depot</th><th class="num">Claims</th><th class="num">Cancelled</th><th class="num">Cancel rate</th>
-      <th class="num">Processed</th><th class="num">Rejected</th><th class="num">Open</th><th class="num">Not started</th><th class="num">Local reason</th><th class="num">Lost £</th><th></th></tr></thead><tbody>
-    ${rows.map(r => `<tr class="clickable" data-goto="${esc(r.store)}">
-      <td>${esc(storeLabel(r.store))}</td><td class="num">${r.total}</td><td class="num">${r.cancelled}</td>
-      <td class="num">${pct(r.cancelled, r.total)}</td><td class="num">${r.processed}</td><td class="num">${r.rejected}</td>
-      <td class="num">${r.open}</td><td class="num">${r.notstarted}</td><td class="num">${pct(r.withLocal, r.cancelled)}</td><td class="num">${gbp(r.lost)}</td>
-      <td class="bar-cell"><div class="bar pink" style="width:${r.lost / maxLost * 100}%" title="${gbp(r.lost)}"></div></td></tr>`).join('')}
-    </tbody></table></div>`;
+  return [...by.entries()].map(([store, list]) => ({ store, ...summarise(list) }));
+}
+
+function renderRanking(filtered) {
+  if (!RANK_METRICS[rankBy]) rankBy = 'lost';
+  const m = RANK_METRICS[rankBy];
+  const rows = depotRows(filtered).sort((a, b) => m.val(b) - m.val(a) || b.lost - a.lost);
+  const maxV = Math.max(1e-9, ...rows.map(m.val));
+  const s = summarise(filtered);
+  const from = $('dateFrom').value, to = $('dateTo').value;
+  const range = from || to ? `Fail date ${from || '…'} to ${to || '…'}` : 'All fail dates';
+  const rank = i => `<span class="rank${i < 3 ? ' top' : ''}">${i + 1}</span>`;
+
+  $('main').innerHTML = `<h2>Depot Ranking</h2>
+    <div class="sub">${range} · ${rows.length} ticked depot(s) · ${s.total.toLocaleString()} claims · ranked highest first</div>
+    <div class="tiles">
+      ${tile('Cancelled', s.cancelled.toLocaleString(), pct(s.cancelled, s.total) + ' of claims')}
+      ${tile('Processed', s.processed.toLocaleString(), pct(s.processed, s.total) + ' of claims')}
+      ${tile('Supplier rejected', s.rejected.toLocaleString(), pct(s.rejected, s.total) + ' of claims')}
+      ${tile('Not started', s.notstarted.toLocaleString(), 'Unfinished claims', 'notstarted')}
+      ${tile('Lost value', gbp(s.lost), 'Claim £ of cancelled claims', 'lost')}
+    </div>
+    <div class="panel">
+      <h3><span class="grow">Rank depots by</span></h3>
+      <div class="rank-btns">${Object.entries(RANK_METRICS).map(([k, v]) =>
+        `<button class="toggle-btn${k === rankBy ? ' active' : ''}" data-rank="${k}">${v.label}</button>`).join('')}</div>
+      <div class="table-wrap"><table class="wo-table rank-table"><thead><tr><th>#</th><th>Depot</th><th class="num">${esc(m.label)}</th><th></th>
+        <th class="num">Claims</th><th class="num">Cancelled</th><th class="num">Cancel rate</th><th class="num">Processed</th>
+        <th class="num">Rejected</th><th class="num">Open</th><th class="num">Not started</th><th class="num">FBF reason</th><th class="num">Lost £</th></tr></thead><tbody>
+      ${rows.map((r, i) => `<tr class="clickable" data-goto="${esc(r.store)}">
+        <td>${rank(i)}</td><td><strong>${esc(storeLabel(r.store))}</strong></td>
+        <td class="num"><strong>${m.fmt(m.val(r))}</strong></td>
+        <td class="bar-cell"><div class="bar pink" style="width:${m.val(r) / maxV * 100}%"></div></td>
+        <td class="num">${r.total}</td><td class="num">${r.cancelled}</td><td class="num">${pct(r.cancelled, r.total)}</td>
+        <td class="num">${r.processed}</td><td class="num">${r.rejected}</td><td class="num">${r.open}</td><td class="num">${r.notstarted}</td>
+        <td class="num">${pct(r.withLocal, r.cancelled)}</td><td class="num">${gbp(r.lost)}</td></tr>`).join('')
+        || '<tr><td colspan="13" class="muted">No depots ticked. Tick depots in the list on the left.</td></tr>'}
+      </tbody></table></div>
+      <div class="legend-line">Only ticked depots are ranked. Click a depot to open its tab. FBF reason = share of cancelled claims with a reason on the FBF cancel log.</div>
+    </div>`;
+  document.querySelectorAll('[data-rank]').forEach(b => b.addEventListener('click', () => {
+    rankBy = b.dataset.rank;
+    try { localStorage.setItem('wt-rank-by', rankBy); } catch (e) {}
+    render();
+  }));
+  bindGoto();
+}
+
+function bindGoto() {
+  document.querySelectorAll('#main [data-goto]').forEach(el => el.addEventListener('click', e => {
+    e.preventDefault(); currentView = el.dataset.goto; claimSearch = ''; render(); window.scrollTo(0, 0);
+  }));
 }
 
 const CLAIM_LIMIT = 500;
@@ -442,19 +525,15 @@ function exportCsv(cancelled) {
       c.amount.toFixed(2), c.status, c.sysReason, loc.reason, loc.hos, loc.sheet].map(cell).join(',');
   });
   const blob = new Blob([[head.map(cell).join(','), ...lines].join('\r\n')], { type: 'text/csv' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `cancelled-claims-${currentView === 'ALL' ? 'all' : currentView}.csv`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  saveFile(`cancelled-claims-${currentView === 'ALL' ? 'all' : currentView}.csv`, blob);
 }
 
 /* ── 6b. Unfinished (Not Started) PDF report ───────────────────────────── */
 function unfinishedPdf() {
-  if (!claims.length) { alert('Upload the system export first.'); return; }
+  if (!claims.length) { notify('Upload the system export first.'); return; }
   const rows = claims.filter(inDateRange)
-    .filter(c => c.bucket === 'notstarted' && !hiddenStores.has(c.store) && (currentView === 'ALL' || c.store === currentView));
-  if (!rows.length) { alert('No unfinished claims for this selection.'); return; }
+    .filter(c => c.bucket === 'notstarted' && !hiddenStores.has(c.store) && (currentView === 'ALL' || currentView === 'RANK' || c.store === currentView));
+  if (!rows.length) { notify('No unfinished claims for this selection.'); return; }
   const byStore = new Map();
   for (const c of rows.sort((a, b) => (a.failDate || 0) - (b.failDate || 0))) {
     if (!byStore.has(c.store)) byStore.set(c.store, []);
@@ -521,7 +600,8 @@ function unfinishedPdf() {
     doc.setPage(i); doc.setFontSize(8); doc.setTextColor(...PINK);
     doc.text(`Page ${i} of ${n}`, W - 10, doc.internal.pageSize.getHeight() - 6, { align: 'right' });
   }
-  doc.save(`unfinished-warranty-${currentView === 'ALL' ? 'all-depots' : currentView}-${isoLocal(today)}.pdf`);
+  const scope = currentView === 'ALL' || currentView === 'RANK' ? 'all-depots' : currentView;
+  saveFile(`unfinished-warranty-${scope}-${isoLocal(today)}.pdf`, doc.output('blob'));
 }
 
 /* ── 7. Wiring ─────────────────────────────────────────────────────────── */
@@ -533,9 +613,9 @@ $('fileSystem').addEventListener('change', async e => {
   try {
     claims = parseSystem(await readWorkbook(f));
     $('btnSystem').classList.add('loaded');
-    currentView = 'ALL';
+    currentView = 'RANK';
     render();
-  } catch (err) { alert('Could not read system export: ' + err.message); }
+  } catch (err) { notify('Could not read system export: ' + err.message); }
   e.target.value = '';
 });
 
@@ -546,7 +626,7 @@ $('fileLocal').addEventListener('change', async e => {
     if (!localLog.size) throw new Error('No rows with a Warranty Claim Number column were found.');
     $('btnLocal').classList.add('loaded');
     render();
-  } catch (err) { alert('Could not read local cancel log: ' + err.message); }
+  } catch (err) { notify('Could not read local cancel log: ' + err.message); }
   e.target.value = '';
 });
 

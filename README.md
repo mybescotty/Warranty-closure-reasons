@@ -2,6 +2,9 @@
 
 Open `warranty-tracker.html` in a browser (Edge/Chrome). No install needed.
 
+It opens on the **Dashboard**, which ranks every ticked depot. Use the *Rank depots by* buttons
+to rank by lost £, cancel rate, cancelled, not started, supplier rejected or missing FBF reason.
+
 1. **System export (.xlsx)**: the warranty claims export (STORE, CLAIMCODE, CLAIMSTATUS, REJECTREASON, CLAIMAMOUNT …).
 2. **Local cancel log (.xlsx)**: the depots' *Warranty Cancel Log* workbook, one tab per depot with
    Date · Warranty Claim Number · Reason for Cancelling · Cancelled By Head of Stores.
@@ -29,3 +32,8 @@ depot at once. Your selection is remembered in this browser.
 The **Unfinished report (PDF)** button downloads a summary page plus one page per depot
 listing every claim at *Unfinished*, oldest first. On **All Depots** it covers every depot;
 on a depot tab it covers just that depot. The fail date filter applies.
+
+## Shareable copy
+A copy is published as a claude.ai artifact. To rebuild it after changes:
+`python3 tools/build_artifact.py /path/to/out.html`, then republish that file.
+No claim data is stored in the page; everyone uploads their own exports.
