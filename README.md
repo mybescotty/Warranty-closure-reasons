@@ -17,8 +17,13 @@ Local reasons are matched to the export on claim number and replace the system r
 - **Lost value**: total CLAIMAMOUNT of cancelled claims
 
 ## Depot names
-Tabs show store codes until you add names to `STORE_NAMES` near the top of the script,
-for example `'2261': 'Hunslet',`.
+Store codes are mapped to depot names in `STORE_NAMES` near the top of the script,
+for example `'2261': 'Hunslet Park',`. Unmapped codes show as `Store 1234`.
+
+## Show / hide depots
+Untick a depot in the sidebar to hide it. Hidden depots are left out of the All Depots
+totals, the depot comparison and the Unfinished PDF. **Show all / Hide all** switch every
+depot at once. Your selection is remembered in this browser.
 
 ## Unfinished report (PDF)
 The **Unfinished report (PDF)** button downloads a summary page plus one page per depot

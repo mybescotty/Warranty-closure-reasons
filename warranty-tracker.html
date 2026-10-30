@@ -48,6 +48,11 @@ nav .nav-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06
 .nav-item:hover  { background: rgba(229,0,125,0.08); }
 .nav-item.active { background: var(--accent); color: #fff; }
 .nav-item .cnt { font-size: 11px; opacity: 0.75; }
+.nav-item .nm { flex: 1; margin-left: 6px; }
+.nav-item.hidden-store { opacity: 0.45; cursor: default; }
+.nav-item.hidden-store:hover { background: none; }
+.store-toggle { accent-color: var(--accent); margin: 0; cursor: pointer; }
+.nav-btns { display: flex; gap: 6px; padding: 4px 14px 8px; }
 main { flex: 1; padding: 20px; min-width: 0; }
 .empty { background: var(--bg-panel); border: 1px dashed var(--border); border-radius: 8px; padding: 40px; text-align: center; color: var(--text-secondary); line-height: 1.7; }
 h2 { margin: 0 0 4px; font-size: 20px; }
@@ -55,7 +60,7 @@ h2 { margin: 0 0 4px; font-size: 20px; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
 .tile { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
 .tile .lbl { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
-.tile .val { font-size: clamp(18px, 2vw, 26px); white-space: nowrap; font-weight: 600; margin-top: 4px; }
+.tile .val { font-size: clamp(16px, 1.5vw, 26px); white-space: nowrap; font-weight: 600; margin-top: 4px; }
 .tile .note { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
 .tile.lost { border-left: 4px solid #e74c3c; }
 .tile.lost .val { color: #c0392b; }
@@ -118,8 +123,19 @@ tr.no-local td { background: var(--row-amber); }
 <script>
 /* ── 1. Config ─────────────────────────────────────────────────────────── */
 // Store code → depot name. Fill these in and the tabs will show the depot name.
-// e.g. '2261': 'Hunslet',
 const STORE_NAMES = {
+  '3011': 'Aberdeen',        '1211': 'Adderley Green',   '4201': 'Basildon',      '6071': 'Bath',
+  '3621': 'Blantyre',        '2201': 'Bradford',         '2241': 'Bramley',       '6651': 'Bridgend',
+  '3671': 'Caledonia',       '6831': 'Camborne',         '4241': 'Chelmsford',    '4281': 'Colchester',
+  '2411': 'Doncaster',       '3611': 'Dumbarton',        '4111': 'Great Yarmouth', '4211': 'Hadleigh',
+  '2211': 'Halifax',         '6661': 'Haverfordwest',    '6311': 'Hengrove',      '6241': 'Hilsea',
+  '6231': 'Hoeford',         '2231': 'Huddersfield',     '2261': 'Hunslet Park',  '4131': 'Ipswich',
+  '4061': 'Kings Lynn',      '6321': 'Lawrence Hill',    '4401': 'Leicester',     '4101': 'Lowestoft',
+  '2431': 'Olive Grove',     '3711': 'Overtown',         '6861': 'Penzance',      '6621': 'Port Talbot',
+  '3681': 'Regional Repair', '1151': 'Rochdale',         '4031': 'Roundtree Way', '3651': 'Scotstoun',
+  '5171': 'Slough',          '6701': 'Swansea',          '6061': 'Taunton',       '2281': 'Todmorden',
+  '6711': 'Tycroes',         '4021': 'Vulcan Road',      '6021': 'Wells',         '6041': 'Weston Supermare',
+  '6271': 'Weymouth',        '4641': 'Worcester',        '6081': 'Yeovil',        '2311': 'York',
 };
 
 // Status buckets, matched on CLAIMSTATUS (case-insensitive).
@@ -137,6 +153,9 @@ let claims = [];            // system export rows (normalised)
 let localLog = new Map();   // claim number → {date, reason, hos, sheet}
 let currentView = 'ALL';
 let claimSearch = '';
+let hiddenStores = new Set();   // depots unticked in the sidebar (remembered in this browser)
+try { hiddenStores = new Set(JSON.parse(localStorage.getItem('wt-hidden-stores') || '[]')); } catch (e) {}
+const saveHidden = () => { try { localStorage.setItem('wt-hidden-stores', JSON.stringify([...hiddenStores])); } catch (e) {} };
 
 /* ── 3. Helpers ────────────────────────────────────────────────────────── */
 const $ = id => document.getElementById(id);
@@ -275,10 +294,12 @@ function groupStatus(rows) {
 /* ── 6. Rendering ──────────────────────────────────────────────────────── */
 function render() {
   if (!claims.length) return;
-  const filtered = claims.filter(inDateRange);
+  const dated = claims.filter(inDateRange);
+  const filtered = dated.filter(c => !hiddenStores.has(c.store));
   const stores = [...new Set(claims.map(c => c.store))].sort((a, b) =>
     (STORE_NAMES[a] || 'zz' + a).localeCompare(STORE_NAMES[b] || 'zz' + b));
-  renderNav(filtered, stores);
+  if (hiddenStores.has(currentView)) currentView = 'ALL';
+  renderNav(dated, stores);
   const rows = currentView === 'ALL' ? filtered : filtered.filter(c => c.store === currentView);
   renderView(rows, filtered);
 }
@@ -286,12 +307,18 @@ function render() {
 function renderNav(filtered, stores) {
   const cancelledBy = {};
   for (const c of filtered) if (c.bucket === 'cancelled') cancelledBy[c.store] = (cancelledBy[c.store] || 0) + 1;
-  const total = Object.values(cancelledBy).reduce((a, b) => a + b, 0);
-  const item = (id, label, n) => `<div class="nav-item${currentView === id ? ' active' : ''}" data-view="${esc(id)}" title="${n} cancelled">
-      <span>${esc(label)}</span><span class="cnt">${n}</span></div>`;
-  $('nav').innerHTML = `<div class="nav-head">Combined</div>${item('ALL', 'All Depots', total)}
-    <div class="nav-head">Depots (cancelled count)</div>
-    ${stores.map(s => item(s, storeLabel(s), cancelledBy[s] || 0)).join('')}`;
+  const total = stores.filter(s => !hiddenStores.has(s)).reduce((a, s) => a + (cancelledBy[s] || 0), 0);
+  const item = (id, label, n, box) => {
+    const hidden = hiddenStores.has(id);
+    return `<div class="nav-item${currentView === id ? ' active' : ''}${hidden ? ' hidden-store' : ''}" data-view="${esc(id)}" title="${hidden ? 'Hidden — tick to show' : n + ' cancelled'}">
+      ${box ? `<input type="checkbox" class="store-toggle" data-store="${esc(id)}" ${hidden ? '' : 'checked'} title="Show / hide this depot">` : ''}
+      <span class="nm">${esc(label)}</span><span class="cnt">${n}</span></div>`;
+  };
+  const shown = stores.length - stores.filter(s => hiddenStores.has(s)).length;
+  $('nav').innerHTML = `<div class="nav-head">Combined</div>${item('ALL', 'All Depots', total, false)}
+    <div class="nav-head">Depots (cancelled count) · ${shown} of ${stores.length} shown</div>
+    <div class="nav-btns"><button class="toggle-btn" data-all="show">Show all</button><button class="toggle-btn" data-all="hide">Hide all</button></div>
+    ${stores.map(s => item(s, storeLabel(s), cancelledBy[s] || 0, true)).join('')}`;
 }
 
 function tile(lbl, val, note, cls = '') {
@@ -426,7 +453,7 @@ function exportCsv(cancelled) {
 function unfinishedPdf() {
   if (!claims.length) { alert('Upload the system export first.'); return; }
   const rows = claims.filter(inDateRange)
-    .filter(c => c.bucket === 'notstarted' && (currentView === 'ALL' || c.store === currentView));
+    .filter(c => c.bucket === 'notstarted' && !hiddenStores.has(c.store) && (currentView === 'ALL' || c.store === currentView));
   if (!rows.length) { alert('No unfinished claims for this selection.'); return; }
   const byStore = new Map();
   for (const c of rows.sort((a, b) => (a.failDate || 0) - (b.failDate || 0))) {
@@ -524,7 +551,17 @@ $('fileLocal').addEventListener('change', async e => {
 });
 
 $('nav').addEventListener('click', e => {
-  const it = e.target.closest('.nav-item'); if (!it) return;
+  const allBtn = e.target.closest('[data-all]');
+  if (allBtn) {
+    hiddenStores = allBtn.dataset.all === 'hide' ? new Set(claims.map(c => c.store)) : new Set();
+    saveHidden(); render(); return;
+  }
+  const box = e.target.closest('.store-toggle');
+  if (box) {
+    if (box.checked) hiddenStores.delete(box.dataset.store); else hiddenStores.add(box.dataset.store);
+    saveHidden(); render(); return;
+  }
+  const it = e.target.closest('.nav-item'); if (!it || it.classList.contains('hidden-store')) return;
   currentView = it.dataset.view; claimSearch = '';
   render();
 });
