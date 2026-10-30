@@ -358,8 +358,8 @@ function renderView(rows, allFiltered) {
   html += `<div class="grid2">
     <div class="panel"><h3>Reasons for cancelling</h3>
       <table class="wo-table"><thead><tr><th>Reason</th><th class="num">Claims</th><th></th><th class="num">Lost £</th></tr></thead><tbody>
-      ${reasons.map(r => `<tr title="${esc(r.reason)}: ${r.count} claims, ${gbp(r.value)} (${r.local} from local log)">
-        <td>${esc(r.reason)} ${r.local ? `<span class="badge-navy">local ${r.local}</span>` : ''}</td>
+      ${reasons.map(r => `<tr title="${esc(r.reason)}: ${r.count} claims, ${gbp(r.value)} (${r.local} with an FBF Cancel reason)">
+        <td>${esc(r.reason)} ${r.local ? `<span class="badge-navy">FBF Cancel reason${r.local < r.count ? ` (${r.local})` : ''}</span>` : ''}</td>
         <td class="num">${r.count}</td>
         <td class="bar-cell"><div class="bar" style="width:${r.count / maxR * 100}%"></div></td>
         <td class="num">${gbp(r.value)}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">No cancelled claims</td></tr>'}
